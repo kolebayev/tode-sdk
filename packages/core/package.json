@@ -1,0 +1,49 @@
+{
+  "name": "@tode-sdk/core",
+  "version": "1.0.0",
+  "description": "Core Tode Analytics SDK - shared types and base class",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.106.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "peerDependencies": {
+    "@figma/plugin-typings": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@figma/plugin-typings": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "tode",
+    "analytics",
+    "figma",
+    "plugin",
+    "tracker"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-plugin-tracker-lib.git",
+    "directory": "packages/core"
+  },
+  "license": "MIT"
+}

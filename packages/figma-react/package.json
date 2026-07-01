@@ -1,0 +1,49 @@
+{
+  "name": "@tode-sdk/figma-react",
+  "version": "1.0.0",
+  "description": "Tode Analytics SDK for Figma plugins built with React",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external react",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external react"
+  },
+  "dependencies": {
+    "@tode-sdk/core": "^1.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "react": "^18.3.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "tode",
+    "analytics",
+    "figma",
+    "plugin",
+    "react",
+    "hook"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-plugin-tracker-lib.git",
+    "directory": "packages/figma-react"
+  },
+  "license": "MIT"
+}

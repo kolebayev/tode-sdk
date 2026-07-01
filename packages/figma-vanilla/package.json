@@ -1,0 +1,45 @@
+{
+  "name": "@tode-sdk/figma-vanilla",
+  "version": "1.0.0",
+  "description": "Tode Analytics SDK for Figma plugins built with vanilla JavaScript/TypeScript",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch"
+  },
+  "dependencies": {
+    "@tode-sdk/core": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "tode",
+    "analytics",
+    "figma",
+    "plugin",
+    "vanilla",
+    "typescript",
+    "javascript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-plugin-tracker-lib.git",
+    "directory": "packages/figma-vanilla"
+  },
+  "license": "MIT"
+}

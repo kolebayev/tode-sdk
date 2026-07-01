@@ -1,0 +1,48 @@
+{
+  "name": "@tode-sdk/figma-svelte",
+  "version": "1.0.0",
+  "description": "Tode Analytics SDK for Figma plugins built with Svelte",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external svelte",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external svelte"
+  },
+  "dependencies": {
+    "@tode-sdk/core": "^1.0.0"
+  },
+  "peerDependencies": {
+    "svelte": ">=3.0.0"
+  },
+  "devDependencies": {
+    "svelte": "^5.19.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "tode",
+    "analytics",
+    "figma",
+    "plugin",
+    "svelte",
+    "store"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-sdk.git",
+    "directory": "packages/figma-svelte"
+  },
+  "license": "MIT"
+}

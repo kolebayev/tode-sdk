@@ -1,0 +1,50 @@
+{
+  "name": "@tode-sdk/figma-angular",
+  "version": "1.0.0",
+  "description": "Tode Analytics SDK for Figma plugins built with Angular",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external @angular/core --external rxjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external @angular/core --external rxjs"
+  },
+  "dependencies": {
+    "@tode-sdk/core": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=14.0.0",
+    "rxjs": ">=7.0.0"
+  },
+  "devDependencies": {
+    "@angular/core": "^19.1.4",
+    "rxjs": "^7.8.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "tode",
+    "analytics",
+    "figma",
+    "plugin",
+    "angular",
+    "service"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-plugin-tracker-lib.git",
+    "directory": "packages/figma-angular"
+  },
+  "license": "MIT"
+}

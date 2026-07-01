@@ -1,0 +1,33 @@
+{
+  "name": "tode-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tode Analytics SDK for Figma plugins",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:core && npm run build:adapters",
+    "build:core": "npm run build -w @tode-sdk/core",
+    "build:adapters": "npm run build -w @tode-sdk/figma-react && npm run build -w @tode-sdk/figma-vue && npm run build -w @tode-sdk/figma-angular && npm run build -w @tode-sdk/figma-vanilla && npm run build -w @tode-sdk/figma-svelte",
+    "build:react": "npm run build -w @tode-sdk/figma-react",
+    "build:vue": "npm run build -w @tode-sdk/figma-vue",
+    "build:angular": "npm run build -w @tode-sdk/figma-angular",
+    "build:vanilla": "npm run build -w @tode-sdk/figma-vanilla",
+    "build:svelte": "npm run build -w @tode-sdk/figma-svelte",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tode-analytics/tode-sdk.git"
+  },
+  "author": "Tode Analytics",
+  "license": "MIT"
+}
