@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { tode, type TodeConfig, type WebSocketState } from '@tode-sdk/core';
+import {
+  tode,
+  createSessionSocket,
+  type SessionSocket,
+  type TodeConfig,
+  type WebSocketState,
+} from '@tode-sdk/core';
 
 /** Options for the useTode hook */
 export interface UseTodeOptions {
@@ -75,10 +81,8 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   const [isReady, setIsReady] = useState(tode.isReady);
   const [wsState, setWsState] = useState<WebSocketState>('disconnected');
 
-  // Refs for WebSocket management
-  const wsRef = useRef<WebSocket | null>(null);
-  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wsInitializedRef = useRef(false);
+  // Ref for the shared session WebSocket (connect/reconnect/ping lifecycle lives in core)
+  const sessionSocketRef = useRef<SessionSocket | null>(null);
 
   /**
    * Log helper for debug mode.
@@ -93,91 +97,33 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   );
 
   /**
-   * Update WebSocket state and notify callback.
-   */
-  const updateWsState = useCallback(
-    (state: WebSocketState) => {
-      setWsState(state);
-      onWebSocketStateChange?.(state);
-    },
-    [onWebSocketStateChange]
-  );
-
-  /**
-   * Clean up WebSocket connection and ping interval.
-   */
-  const cleanupWebSocket = useCallback(() => {
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = null;
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, []);
-
-  /**
-   * Initialize WebSocket connection for session tracking.
+   * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = useCallback(() => {
     // Prevent multiple connections
-    if (wsInitializedRef.current || wsRef.current) return;
+    if (sessionSocketRef.current) return;
 
-    const config = tode.getWebSocketConfig();
-    if (!config) {
-      log('WebSocket config not available');
-      return;
-    }
+    const socket = createSessionSocket({
+      debug,
+      pingInterval,
+      logPrefix: '[TODE:react]',
+      getConfig: () => tode.getWebSocketConfig(),
+      onStateChange: (state) => {
+        setWsState(state);
+        onWebSocketStateChange?.(state);
+      },
+    });
+    sessionSocketRef.current = socket;
+    socket.start();
+  }, [debug, pingInterval, onWebSocketStateChange]);
 
-    wsInitializedRef.current = true;
-    updateWsState('connecting');
-
-    // Build WebSocket URL with query params
-    const queryString = new URLSearchParams(config.params).toString();
-    const wsUrl = `${config.url}?${queryString}`;
-
-    log('Connecting to WebSocket:', config.url);
-
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        log('WebSocket connected');
-        updateWsState('connected');
-
-        // Start ping interval to keep connection alive
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send('ping');
-            log('Ping sent');
-          }
-        }, pingInterval);
-      };
-
-      ws.onmessage = (event) => {
-        if (event.data === 'pong') {
-          log('Pong received');
-        }
-      };
-
-      ws.onclose = () => {
-        log('WebSocket closed');
-        updateWsState('disconnected');
-        cleanupWebSocket();
-      };
-
-      ws.onerror = (error) => {
-        console.error('[TODE:react] WebSocket error:', error);
-        updateWsState('error');
-      };
-    } catch (error) {
-      console.error('[TODE:react] Failed to create WebSocket:', error);
-      updateWsState('error');
-      wsInitializedRef.current = false;
-    }
-  }, [log, pingInterval, updateWsState, cleanupWebSocket]);
+  /**
+   * Clean up the session WebSocket connection.
+   */
+  const cleanupWebSocket = useCallback(() => {
+    sessionSocketRef.current?.destroy();
+    sessionSocketRef.current = null;
+  }, []);
 
   /**
    * Handle messages from the plugin controller.
@@ -212,7 +158,7 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
    * Initialize WebSocket when ready.
    */
   useEffect(() => {
-    if (isReady && !wsInitializedRef.current) {
+    if (isReady && !sessionSocketRef.current) {
       initWebSocket();
     }
   }, [isReady, initWebSocket]);

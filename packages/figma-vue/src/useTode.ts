@@ -1,5 +1,11 @@
 import { ref, onMounted, onUnmounted, readonly, type Ref } from 'vue';
-import { tode, type TodeConfig, type WebSocketState } from '@tode-sdk/core';
+import {
+  tode,
+  createSessionSocket,
+  type SessionSocket,
+  type TodeConfig,
+  type WebSocketState,
+} from '@tode-sdk/core';
 
 /** Options for the useTode composable */
 export interface UseTodeOptions {
@@ -77,10 +83,8 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   const isReady = ref(tode.isReady);
   const wsState = ref<WebSocketState>('disconnected');
 
-  // Non-reactive refs for WebSocket management
-  let ws: WebSocket | null = null;
-  let pingIntervalId: ReturnType<typeof setInterval> | null = null;
-  let wsInitialized = false;
+  // Session WebSocket handle (connect/reconnect/ping lifecycle lives in core)
+  let sessionSocket: SessionSocket | null = null;
 
   /**
    * Log helper for debug mode.
@@ -92,86 +96,31 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   };
 
   /**
-   * Update WebSocket state and notify callback.
-   */
-  const updateWsState = (state: WebSocketState) => {
-    wsState.value = state;
-    onWebSocketStateChange?.(state);
-  };
-
-  /**
-   * Clean up WebSocket connection and ping interval.
+   * Clean up the session WebSocket connection.
    */
   const cleanupWebSocket = () => {
-    if (pingIntervalId) {
-      clearInterval(pingIntervalId);
-      pingIntervalId = null;
-    }
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
+    sessionSocket?.destroy();
+    sessionSocket = null;
   };
 
   /**
-   * Initialize WebSocket connection for session tracking.
+   * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = () => {
     // Prevent multiple connections
-    if (wsInitialized || ws) return;
+    if (sessionSocket) return;
 
-    const config = tode.getWebSocketConfig();
-    if (!config) {
-      log('WebSocket config not available');
-      return;
-    }
-
-    wsInitialized = true;
-    updateWsState('connecting');
-
-    // Build WebSocket URL with query params
-    const queryString = new URLSearchParams(config.params).toString();
-    const wsUrl = `${config.url}?${queryString}`;
-
-    log('Connecting to WebSocket:', config.url);
-
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        log('WebSocket connected');
-        updateWsState('connected');
-
-        // Start ping interval to keep connection alive
-        pingIntervalId = setInterval(() => {
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send('ping');
-            log('Ping sent');
-          }
-        }, pingInterval);
-      };
-
-      ws.onmessage = (event) => {
-        if (event.data === 'pong') {
-          log('Pong received');
-        }
-      };
-
-      ws.onclose = () => {
-        log('WebSocket closed');
-        updateWsState('disconnected');
-        cleanupWebSocket();
-      };
-
-      ws.onerror = (error) => {
-        console.error('[TODE:vue] WebSocket error:', error);
-        updateWsState('error');
-      };
-    } catch (error) {
-      console.error('[TODE:vue] Failed to create WebSocket:', error);
-      updateWsState('error');
-      wsInitialized = false;
-    }
+    sessionSocket = createSessionSocket({
+      debug,
+      pingInterval,
+      logPrefix: '[TODE:vue]',
+      getConfig: () => tode.getWebSocketConfig(),
+      onStateChange: (state) => {
+        wsState.value = state;
+        onWebSocketStateChange?.(state);
+      },
+    });
+    sessionSocket.start();
   };
 
   /**

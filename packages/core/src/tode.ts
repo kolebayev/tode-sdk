@@ -9,11 +9,38 @@ import type {
   ActionWithMetricPayload,
   ITode,
 } from './types.js';
+import { VERSION } from './version.js';
 
 /** Default production API URL */
 const DEFAULT_API_URL = 'https://mvp-events-processing-production.up.railway.app';
 /** Default production WebSocket URL */
 const DEFAULT_WS_URL = 'wss://mvp-events-processing-production.up.railway.app';
+/** Default timeout (ms) for outgoing API requests, so a hanging network call can't block init() forever */
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * fetch() with a hard timeout, so a hanging request can't block a caller forever.
+ * An optional caller-supplied `signal` is bridged into the internal timeout
+ * controller so either one can cancel the request (kept manual, rather than
+ * `AbortSignal.any`, for Node 18 compatibility).
+ */
+function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { signal?: AbortSignal },
+  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const externalSignal = init.signal;
+  const onExternalAbort = () => controller.abort();
+  externalSignal?.addEventListener('abort', onExternalAbort);
+
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
+  });
+}
 
 /**
  * Tode Analytics SDK - Core class for tracking plugin events.
@@ -115,6 +142,11 @@ class Tode implements ITode {
     return this._wsUrl;
   }
 
+  /** The installed @tode-sdk/core version. Useful when reporting bugs. */
+  get version(): string {
+    return VERSION;
+  }
+
   // --- Private Methods ---
 
   /**
@@ -141,14 +173,23 @@ class Tode implements ITode {
   }
 
   /**
+   * Check that an actionName is usable, guarding against untyped JS callers
+   * passing `undefined`/non-strings/empty strings.
+   */
+  private isValidActionName(actionName: unknown): actionName is string {
+    return typeof actionName === 'string' && actionName.trim().length > 0;
+  }
+
+  /**
    * Fetch user's country from the API using GeoIP.
    */
-  private async fetchUserCountry(): Promise<void> {
+  private async fetchUserCountry(signal?: AbortSignal): Promise<void> {
     if (!this._apiKey) return;
 
     try {
-      const response = await fetch(`${this._apiUrl}/get-user-country`, {
+      const response = await fetchWithTimeout(`${this._apiUrl}/get-user-country`, {
         headers: { 'X-API-Key': this._apiKey },
+        signal,
       });
 
       if (!response.ok) {
@@ -193,8 +234,10 @@ class Tode implements ITode {
       timestamp: Date.now(),
       appSource: this._appSource,
       eventSource: options?.eventSource ?? this._eventSource,
-      userCountry: this._userCountry,
+      userCountry: this._userCountry ?? 'unknown',
       ...this._figmaData,
+      figma_userId: this._figmaData.figma_userId ?? '',
+      figma_pluginId: this._figmaData.figma_pluginId ?? '',
     };
   }
 
@@ -203,7 +246,8 @@ class Tode implements ITode {
    */
   private async sendTrackingData(
     endpoint: string,
-    payload: ActionEventPayload | ActionWithMetricPayload
+    payload: ActionEventPayload | ActionWithMetricPayload,
+    signal?: AbortSignal
   ): Promise<void> {
     if (!this._apiKey) {
       this.logError('Cannot track: Tode not initialized');
@@ -211,13 +255,14 @@ class Tode implements ITode {
     }
 
     try {
-      const response = await fetch(`${this._apiUrl}${endpoint}`, {
+      const response = await fetchWithTimeout(`${this._apiUrl}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': this._apiKey,
         },
         body: JSON.stringify(payload),
+        signal,
       });
 
       if (!response.ok) {
@@ -282,7 +327,7 @@ class Tode implements ITode {
     };
 
     // Fetch user country
-    await this.fetchUserCountry();
+    await this.fetchUserCountry(options.signal);
 
     // Send config to UI
     this.sendConfigToUI();
@@ -332,12 +377,17 @@ class Tode implements ITode {
    * ```
    */
   async trackAction(actionName: string, options?: TrackOptions): Promise<void> {
+    if (!this.isValidActionName(actionName)) {
+      this.logError(`trackAction: actionName must be a non-empty string, got ${typeof actionName}`);
+      return;
+    }
+
     const payload: ActionEventPayload = {
       type: 'action',
       ...this.buildBasePayload(actionName, options),
     };
 
-    await this.sendTrackingData('/figma/track-action', payload);
+    await this.sendTrackingData('/figma/track-action', payload, options?.signal);
   }
 
   /**
@@ -364,6 +414,13 @@ class Tode implements ITode {
     value: number,
     options?: TrackOptions
   ): Promise<void> {
+    if (!this.isValidActionName(actionName)) {
+      this.logError(
+        `trackActionWithMetric: actionName must be a non-empty string, got ${typeof actionName}`
+      );
+      return;
+    }
+
     if (typeof value !== 'number' || isNaN(value)) {
       this.logError(`trackActionWithMetric: value must be a number, got ${typeof value}`);
       return;
@@ -375,7 +432,7 @@ class Tode implements ITode {
       ...this.buildBasePayload(actionName, options),
     };
 
-    await this.sendTrackingData('/figma/track-action-with-metric', payload);
+    await this.sendTrackingData('/figma/track-action-with-metric', payload, options?.signal);
   }
 
   /**

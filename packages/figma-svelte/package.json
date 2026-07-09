@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external svelte",
     "typecheck": "tsc --noEmit",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external svelte"
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external svelte",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tode-sdk/core": "^1.0.0"
@@ -27,9 +28,11 @@
     "svelte": ">=3.0.0"
   },
   "devDependencies": {
+    "jsdom": "^25.0.1",
     "svelte": "^5.19.0",
     "tsup": "^8.3.5",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   },
   "keywords": [
     "tode",
@@ -41,8 +44,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/tode-analytics/tode-sdk.git",
-    "directory": "packages/figma-svelte"
+    "url": "https://github.com/kolebayev/tode-analytics.git",
+    "directory": "tode-sdk/packages/figma-svelte"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

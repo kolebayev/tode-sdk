@@ -1,0 +1,30 @@
+# @tode-sdk/core
+
+Core Tode Analytics SDK for Figma plugins - shared types and the `Tode` singleton class. Install this alongside a framework adapter (`@tode-sdk/figma-react`, `-vue`, `-angular`, `-svelte`, or `-vanilla`) for the plugin UI, or use it on its own from the plugin controller.
+
+```bash
+npm install @tode-sdk/core
+```
+
+## Usage
+
+```typescript
+// code.ts (plugin controller)
+import { tode } from '@tode-sdk/core';
+
+figma.showUI(__html__);
+await tode.init({ apiKey: 'your-api-key' });
+
+tode.trackAction('plugin_opened');
+tode.trackActionWithMetric('items_exported', 42);
+```
+
+See the [root README](../../README.md) for `init()` options, error-handling behavior, and session tracking. Using `@tode-sdk/core` alone (no framework adapter) tracks actions/metrics but does **not** produce session data - that requires one of the UI adapters to open the WebSocket.
+
+## Exports
+
+- `tode` - the singleton `Tode` instance
+- `Tode` - the class itself, for advanced/test usage (`Tode.resetInstance()`)
+- `createSessionSocket` - the framework-agnostic WebSocket session helper (ping keepalive + exponential-backoff reconnect) that every adapter is built on; only reach for this directly if you're writing a new adapter
+- `VERSION` - the installed package version as a string (also available as `tode.version`)
+- Types: `TodeInitOptions`, `TodeConfig`, `TrackOptions`, `FigmaData`, `ActionEventPayload`, `ActionWithMetricPayload`, `SessionPayload`, `WebSocketState`, `ITode`, and more - see [`src/types.ts`](./src/types.ts)

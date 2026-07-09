@@ -1,5 +1,11 @@
-import { writable, derived, get, type Readable } from 'svelte/store';
-import { tode, type TodeConfig, type WebSocketState } from '@tode-sdk/core';
+import { writable, derived, type Readable } from 'svelte/store';
+import {
+  tode,
+  createSessionSocket,
+  type SessionSocket,
+  type TodeConfig,
+  type WebSocketState,
+} from '@tode-sdk/core';
 
 /** Configuration options for createTodeStore */
 export interface TodeStoreConfig {
@@ -81,11 +87,10 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
   const isReady = writable(tode.isReady);
   const wsState = writable<WebSocketState>('disconnected');
 
-  // WebSocket management
-  let ws: WebSocket | null = null;
-  let pingIntervalId: ReturnType<typeof setInterval> | null = null;
-  let wsInitialized = false;
+  // Session WebSocket handle (connect/reconnect/ping lifecycle lives in core)
+  let sessionSocket: SessionSocket | null = null;
   let messageHandler: ((event: MessageEvent) => void) | null = null;
+  let beforeUnloadHandler: (() => void) | null = null;
 
   /**
    * Log helper for debug mode.
@@ -97,84 +102,37 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
   };
 
   /**
-   * Clean up WebSocket connection and ping interval.
+   * Clean up the session WebSocket connection.
    */
   const cleanupWebSocket = () => {
-    if (pingIntervalId) {
-      clearInterval(pingIntervalId);
-      pingIntervalId = null;
-    }
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
+    sessionSocket?.destroy();
+    sessionSocket = null;
   };
 
   /**
-   * Initialize WebSocket connection for session tracking.
+   * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = () => {
     // Prevent multiple connections
-    if (wsInitialized || ws) return;
+    if (sessionSocket) return;
 
-    const wsConfig = tode.getWebSocketConfig();
-    if (!wsConfig) {
-      log('WebSocket config not available');
-      return;
-    }
-
-    wsInitialized = true;
-    wsState.set('connecting');
-
-    // Build WebSocket URL with query params
-    const queryString = new URLSearchParams(wsConfig.params).toString();
-    const wsUrl = `${wsConfig.url}?${queryString}`;
-
-    log('Connecting to WebSocket:', wsConfig.url);
-
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        log('WebSocket connected');
-        wsState.set('connected');
-
-        // Start ping interval to keep connection alive
-        pingIntervalId = setInterval(() => {
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send('ping');
-            log('Ping sent');
-          }
-        }, pingInterval);
-      };
-
-      ws.onmessage = (event) => {
-        if (event.data === 'pong') {
-          log('Pong received');
-        }
-      };
-
-      ws.onclose = () => {
-        log('WebSocket closed');
-        wsState.set('disconnected');
-        cleanupWebSocket();
-      };
-
-      ws.onerror = (error) => {
-        console.error('[TODE:svelte] WebSocket error:', error);
-        wsState.set('error');
-      };
-    } catch (error) {
-      console.error('[TODE:svelte] Failed to create WebSocket:', error);
-      wsState.set('error');
-      wsInitialized = false;
-    }
+    sessionSocket = createSessionSocket({
+      debug,
+      pingInterval,
+      logPrefix: '[TODE:svelte]',
+      getConfig: () => tode.getWebSocketConfig(),
+      onStateChange: (state) => wsState.set(state),
+    });
+    sessionSocket.start();
   };
 
   /**
    * Set up listener for messages from the plugin controller.
+   * No-ops outside a browser environment (e.g. SSR), where `window` doesn't exist.
    */
   const setupMessageListener = () => {
+    if (typeof window === 'undefined') return;
+
     messageHandler = (event: MessageEvent) => {
       // Figma wraps messages in pluginMessage
       const pluginMessage = event.data?.pluginMessage;
@@ -197,11 +155,32 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
     window.addEventListener('message', messageHandler);
     log('Message listener attached');
 
+    // Safety net: if the caller forgets to call destroy() explicitly, at
+    // least stop pinging/reconnecting when the page/iframe unloads.
+    beforeUnloadHandler = () => destroy();
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+
     // Check if already ready
     if (tode.isReady) {
       isReady.set(true);
       initWebSocket();
     }
+  };
+
+  /**
+   * Clean up all resources (call on component destroy).
+   */
+  const destroy = () => {
+    if (messageHandler) {
+      window.removeEventListener('message', messageHandler);
+      messageHandler = null;
+    }
+    if (beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      beforeUnloadHandler = null;
+    }
+    cleanupWebSocket();
+    log('Store destroyed');
   };
 
   // Initialize on creation
@@ -226,14 +205,7 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
     trackActionWithMetric: (actionName: string, value: number) =>
       tode.trackActionWithMetric(actionName, value),
 
-    destroy: () => {
-      if (messageHandler) {
-        window.removeEventListener('message', messageHandler);
-        messageHandler = null;
-      }
-      cleanupWebSocket();
-      log('Store destroyed');
-    },
+    destroy,
   };
 }
 

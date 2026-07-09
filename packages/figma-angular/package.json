@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external @angular/core --external rxjs",
     "typecheck": "tsc --noEmit",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external @angular/core --external rxjs"
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external @angular/core --external rxjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tode-sdk/core": "^1.0.0"
@@ -29,9 +30,11 @@
   },
   "devDependencies": {
     "@angular/core": "^19.1.4",
+    "jsdom": "^25.0.1",
     "rxjs": "^7.8.1",
     "tsup": "^8.3.5",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   },
   "keywords": [
     "tode",
@@ -43,8 +46,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/tode-analytics/tode-plugin-tracker-lib.git",
-    "directory": "packages/figma-angular"
+    "url": "https://github.com/kolebayev/tode-analytics.git",
+    "directory": "tode-sdk/packages/figma-angular"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

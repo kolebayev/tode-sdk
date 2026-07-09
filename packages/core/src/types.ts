@@ -104,11 +104,17 @@ export interface ActionWithMetricPayload extends BaseEventPayload, FigmaData {
 }
 
 /**
- * Payload for session tracking (sent via WebSocket).
+ * Shape of a session tracking record as recorded by the backend.
+ *
+ * The SDK never constructs or sends this payload itself - session tracking
+ * works by opening a WebSocket (see `Tode.getWebSocketConfig()`) and the
+ * server computes `sessionDuration` from the connection's open-to-close
+ * wall-clock time once the socket closes. This type only describes that
+ * server-side shape for consumers reading session data back out.
  */
 export interface SessionPayload extends BaseEventPayload, FigmaData {
   type: 'session';
-  /** Session duration in milliseconds (set on close) */
+  /** Session duration in seconds (set by the server when the connection closes) */
   sessionDuration?: number;
 }
 
@@ -132,6 +138,8 @@ export interface TodeInitOptions {
   wsUrl?: string;
   /** Enable debug logging (optional, defaults to false) */
   debug?: boolean;
+  /** Abort this init() call's in-flight requests early (in addition to the built-in timeout) */
+  signal?: AbortSignal;
 }
 
 /**
@@ -140,6 +148,8 @@ export interface TodeInitOptions {
 export interface TrackOptions {
   /** Override the event source for this specific event */
   eventSource?: EventSource;
+  /** Abort this call's in-flight request early (in addition to the built-in timeout) */
+  signal?: AbortSignal;
 }
 
 /**
@@ -164,6 +174,8 @@ export interface ITode {
   readonly userCountry: string | null;
   /** Current event source */
   readonly eventSource: EventSource;
+  /** The installed @tode-sdk/core version */
+  readonly version: string;
 
   /**
    * Initialize Tode in the plugin controller environment.

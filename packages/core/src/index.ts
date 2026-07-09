@@ -11,6 +11,13 @@
 // Export main Tode class and instance
 export { tode, Tode } from './tode.js';
 
+// Export the SDK version
+export { VERSION } from './version.js';
+
+// Export shared session WebSocket helper used by framework adapters
+export { createSessionSocket } from './sessionSocket.js';
+export type { SessionSocket, SessionSocketOptions } from './sessionSocket.js';
+
 // Export all types
 export type {
   AppSource,

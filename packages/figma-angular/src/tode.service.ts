@@ -1,7 +1,13 @@
 import { Injectable, OnDestroy, NgZone } from '@angular/core';
 import { BehaviorSubject, Observable, Subject, fromEvent } from 'rxjs';
 import { takeUntil, filter, map } from 'rxjs/operators';
-import { tode, type TodeConfig, type WebSocketState } from '@tode-sdk/core';
+import {
+  tode,
+  createSessionSocket,
+  type SessionSocket,
+  type TodeConfig,
+  type WebSocketState,
+} from '@tode-sdk/core';
 
 /** Configuration options for TodeService */
 export interface TodeServiceConfig {
@@ -74,9 +80,7 @@ export class TodeService implements OnDestroy {
   private readonly isReadySubject = new BehaviorSubject<boolean>(tode.isReady);
   private readonly wsStateSubject = new BehaviorSubject<WebSocketState>('disconnected');
 
-  private ws: WebSocket | null = null;
-  private pingIntervalId: ReturnType<typeof setInterval> | null = null;
-  private wsInitialized = false;
+  private sessionSocket: SessionSocket | null = null;
   private config: TodeServiceConfig = { debug: false, pingInterval: 5000 };
 
   /** Observable stream of ready state changes */
@@ -173,88 +177,44 @@ export class TodeService implements OnDestroy {
 
     this.log('Message listener attached');
 
-    // Check if already ready
+    // Check if already ready. Deferred to a microtask so that a `configure()`
+    // call made synchronously right after construction (e.g. from a
+    // component's ngOnInit, the typical usage pattern) is guaranteed to run
+    // first - otherwise the very first connection attempt could start with
+    // stale defaults before configure() ever executes.
     if (tode.isReady) {
-      this.isReadySubject.next(true);
-      this.initWebSocket();
+      queueMicrotask(() => {
+        this.isReadySubject.next(true);
+        this.initWebSocket();
+      });
     }
   }
 
   /**
-   * Clean up WebSocket connection and ping interval.
+   * Clean up the session WebSocket connection.
    */
   private cleanupWebSocket(): void {
-    if (this.pingIntervalId) {
-      clearInterval(this.pingIntervalId);
-      this.pingIntervalId = null;
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+    this.sessionSocket?.destroy();
+    this.sessionSocket = null;
   }
 
   /**
-   * Initialize WebSocket connection for session tracking.
+   * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   private initWebSocket(): void {
     // Prevent multiple connections
-    if (this.wsInitialized || this.ws) return;
+    if (this.sessionSocket) return;
 
-    const wsConfig = tode.getWebSocketConfig();
-    if (!wsConfig) {
-      this.log('WebSocket config not available');
-      return;
-    }
-
-    this.wsInitialized = true;
-    this.wsStateSubject.next('connecting');
-
-    // Build WebSocket URL with query params
-    const queryString = new URLSearchParams(wsConfig.params).toString();
-    const wsUrl = `${wsConfig.url}?${queryString}`;
-
-    this.log('Connecting to WebSocket:', wsConfig.url);
-
-    try {
-      // Run outside Angular zone to avoid unnecessary change detection
-      this.ngZone.runOutsideAngular(() => {
-        this.ws = new WebSocket(wsUrl);
-
-        this.ws.onopen = () => {
-          this.log('WebSocket connected');
-          this.ngZone.run(() => this.wsStateSubject.next('connected'));
-
-          // Start ping interval to keep connection alive
-          this.pingIntervalId = setInterval(() => {
-            if (this.ws?.readyState === WebSocket.OPEN) {
-              this.ws.send('ping');
-              this.log('Ping sent');
-            }
-          }, this.config.pingInterval);
-        };
-
-        this.ws.onmessage = (event) => {
-          if (event.data === 'pong') {
-            this.log('Pong received');
-          }
-        };
-
-        this.ws.onclose = () => {
-          this.log('WebSocket closed');
-          this.ngZone.run(() => this.wsStateSubject.next('disconnected'));
-          this.cleanupWebSocket();
-        };
-
-        this.ws.onerror = (error) => {
-          console.error('[TODE:angular] WebSocket error:', error);
-          this.ngZone.run(() => this.wsStateSubject.next('error'));
-        };
+    // Run outside Angular zone to avoid unnecessary change detection from ping/reconnect timers
+    this.ngZone.runOutsideAngular(() => {
+      this.sessionSocket = createSessionSocket({
+        debug: this.config.debug,
+        pingInterval: this.config.pingInterval,
+        logPrefix: '[TODE:angular]',
+        getConfig: () => tode.getWebSocketConfig(),
+        onStateChange: (state) => this.ngZone.run(() => this.wsStateSubject.next(state)),
       });
-    } catch (error) {
-      console.error('[TODE:angular] Failed to create WebSocket:', error);
-      this.wsStateSubject.next('error');
-      this.wsInitialized = false;
-    }
+      this.sessionSocket.start();
+    });
   }
 }

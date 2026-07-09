@@ -1,4 +1,10 @@
-import { tode, type TodeConfig, type WebSocketState } from '@tode-sdk/core';
+import {
+  tode,
+  createSessionSocket,
+  type SessionSocket,
+  type TodeConfig,
+  type WebSocketState,
+} from '@tode-sdk/core';
 
 /** Event types emitted by TodeClient */
 export type TodeClientEventType = 'ready' | 'wsStateChange';
@@ -88,10 +94,9 @@ export class TodeClient {
   private config: Required<TodeClientConfig>;
   private listeners: Map<TodeClientEventType, Set<TodeClientListener<TodeClientEventType>>> =
     new Map();
-  private ws: WebSocket | null = null;
-  private pingIntervalId: ReturnType<typeof setInterval> | null = null;
-  private wsInitialized = false;
+  private sessionSocket: SessionSocket | null = null;
   private messageHandler: ((event: MessageEvent) => void) | null = null;
+  private beforeUnloadHandler: (() => void) | null = null;
   private _isReady = false;
   private _wsState: WebSocketState = 'disconnected';
   private _started = false;
@@ -150,6 +155,14 @@ export class TodeClient {
 
     this._started = true;
     this.setupMessageListener();
+
+    // Safety net: if the caller forgets to call destroy() explicitly, at
+    // least stop pinging/reconnecting when the page/iframe unloads.
+    if (typeof window !== 'undefined') {
+      this.beforeUnloadHandler = () => this.destroy();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+    }
+
     this.log('Started');
 
     // Initialize WebSocket if already ready
@@ -209,6 +222,11 @@ export class TodeClient {
     if (this.messageHandler) {
       window.removeEventListener('message', this.messageHandler);
       this.messageHandler = null;
+    }
+
+    if (this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
     }
 
     // Clean up WebSocket
@@ -275,85 +293,30 @@ export class TodeClient {
   }
 
   /**
-   * Update WebSocket state and emit event.
-   */
-  private setWsState(state: WebSocketState): void {
-    this._wsState = state;
-    this.emit('wsStateChange', state);
-  }
-
-  /**
-   * Clean up WebSocket connection and ping interval.
+   * Clean up the session WebSocket connection.
    */
   private cleanupWebSocket(): void {
-    if (this.pingIntervalId) {
-      clearInterval(this.pingIntervalId);
-      this.pingIntervalId = null;
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+    this.sessionSocket?.destroy();
+    this.sessionSocket = null;
   }
 
   /**
-   * Initialize WebSocket connection for session tracking.
+   * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   private initWebSocket(): void {
     // Prevent multiple connections
-    if (this.wsInitialized || this.ws) return;
+    if (this.sessionSocket) return;
 
-    const wsConfig = tode.getWebSocketConfig();
-    if (!wsConfig) {
-      this.log('WebSocket config not available');
-      return;
-    }
-
-    this.wsInitialized = true;
-    this.setWsState('connecting');
-
-    // Build WebSocket URL with query params
-    const queryString = new URLSearchParams(wsConfig.params).toString();
-    const wsUrl = `${wsConfig.url}?${queryString}`;
-
-    this.log('Connecting to WebSocket:', wsConfig.url);
-
-    try {
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
-        this.log('WebSocket connected');
-        this.setWsState('connected');
-
-        // Start ping interval to keep connection alive
-        this.pingIntervalId = setInterval(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send('ping');
-            this.log('Ping sent');
-          }
-        }, this.config.pingInterval);
-      };
-
-      this.ws.onmessage = (event) => {
-        if (event.data === 'pong') {
-          this.log('Pong received');
-        }
-      };
-
-      this.ws.onclose = () => {
-        this.log('WebSocket closed');
-        this.setWsState('disconnected');
-        this.cleanupWebSocket();
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('[TODE:vanilla] WebSocket error:', error);
-        this.setWsState('error');
-      };
-    } catch (error) {
-      console.error('[TODE:vanilla] Failed to create WebSocket:', error);
-      this.setWsState('error');
-      this.wsInitialized = false;
-    }
+    this.sessionSocket = createSessionSocket({
+      debug: this.config.debug,
+      pingInterval: this.config.pingInterval,
+      logPrefix: '[TODE:vanilla]',
+      getConfig: () => tode.getWebSocketConfig(),
+      onStateChange: (state) => {
+        this._wsState = state;
+        this.emit('wsStateChange', state);
+      },
+    });
+    this.sessionSocket.start();
   }
 }

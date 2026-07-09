@@ -142,6 +142,20 @@ document.querySelector('#btn').addEventListener('click', () => {
 
 ## API
 
+### `tode.init(options)`
+
+Call once from the plugin controller (`code.ts`), after `figma.showUI()`.
+
+```typescript
+await tode.init({
+  apiKey: 'your-api-key',   // required
+  apiUrl: 'https://...',    // optional, defaults to the Tode Analytics production API
+  wsUrl: 'wss://...',       // optional, defaults to the Tode Analytics production WebSocket endpoint
+  debug: true,               // optional, defaults to false - logs internal SDK activity to the console
+  signal: abortController.signal, // optional, lets you cancel init() early (in addition to its built-in 10s timeout)
+});
+```
+
 ### Core Methods
 
 ```typescript
@@ -150,11 +164,32 @@ tode.trackAction('action_name');
 
 // Track action with numeric metric
 tode.trackActionWithMetric('items_exported', 42);
+
+// Both accept an optional { signal } to cancel the request early
+tode.trackAction('action_name', { signal: abortController.signal });
 ```
+
+`actionName` must be a non-empty string - `trackAction`/`trackActionWithMetric` reject (log and no-op) `undefined`, non-strings, or empty strings, since plain-JS callers (no TypeScript) aren't type-checked at compile time.
+
+`tode.version` reports the installed `@tode-sdk/core` version - useful when a plugin author reports a bug and you need to know which build they're on.
 
 ### Session Tracking
 
-Session duration is automatically tracked via WebSocket when using the UI adapters. The session starts when the UI loads and ends when it closes.
+Session duration is tracked via a WebSocket opened by the UI adapter (`useTode`, `TodeService`, `createTodeStore`, or `TodeClient`) once `isReady` becomes true. The server records the session's duration from the socket's open-to-close time; `@tode-sdk/core` alone (with no adapter) never opens this socket, so plain `core` usage produces no session data.
+
+Every adapter now automatically reconnects with exponential backoff if the connection drops unexpectedly (1s, 2s, 4s, ... up to 30s, 5 attempts by default before giving up and reporting `wsState: 'error'`). `wsState` cycles through `'disconnected' | 'connecting' | 'connected' | 'error'` as this happens - surface it in your UI if you want to show a live connection indicator.
+
+### Error handling and limits
+
+`trackAction()` / `trackActionWithMetric()` never throw or reject - a failed request (network error, invalid API key, rate limiting) is only reported via `console.error`, regardless of `debug`. There is currently no way to detect delivery failure programmatically from plugin code; watch the console during development.
+
+In particular, if a plugin's manifest doesn't request Figma "identity" access (so `figma.currentUser` is `null`) or a GeoIP lookup fails, the SDK substitutes safe fallback values (`'unknown'` / `''`) rather than sending `null` - so events aren't silently rejected by the backend's required-field validation.
+
+If a plan's event quota is exceeded, the backend responds with `429` and the SDK likewise only logs this to the console - there is no callback or return value to detect throttling from plugin code.
+
+### Framework peer dependency versions
+
+The declared `peerDependencies` floors (`svelte >=3.0.0`, `@angular/core >=14.0.0`) reflect the oldest APIs actually used by each adapter, but CI only builds and typechecks against the versions pinned in each package's `devDependencies` (currently Svelte `^5.19.0`, Angular `^19.1.4`). Older versions within the declared range aren't exercised by any automated test - if you're on an older framework version, verify manually.
 
 ## Development
 
