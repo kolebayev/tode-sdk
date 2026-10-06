@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external react",
@@ -51,6 +52,9 @@
     "directory": "tode-sdk/packages/figma-react"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "engines": {
     "node": ">=18.0.0"

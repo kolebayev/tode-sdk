@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
@@ -45,6 +46,9 @@
     "directory": "tode-sdk/packages/figma-vanilla"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "engines": {
     "node": ">=18.0.0"

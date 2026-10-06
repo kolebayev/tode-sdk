@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external svelte",
@@ -48,6 +49,9 @@
     "directory": "tode-sdk/packages/figma-svelte"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18.0.0"
   }

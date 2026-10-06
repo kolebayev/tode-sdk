@@ -12,9 +12,9 @@ import type {
 import { VERSION } from './version.js';
 
 /** Default production API URL */
-const DEFAULT_API_URL = 'https://mvp-events-processing-production.up.railway.app';
+const DEFAULT_API_URL = 'https://processing.usetode.dev';
 /** Default production WebSocket URL */
-const DEFAULT_WS_URL = 'wss://mvp-events-processing-production.up.railway.app';
+const DEFAULT_WS_URL = 'wss://processing.usetode.dev';
 /** Default timeout (ms) for outgoing API requests, so a hanging network call can't block init() forever */
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
