@@ -2,6 +2,8 @@
 
 Analytics SDK for Figma plugins. Track user actions, session duration, and metrics in your Figma plugins.
 
+Website: [usetode.dev](https://usetode.dev) · Docs: [docs.usetode.dev](https://docs.usetode.dev) · Dashboard: [app.usetode.dev](https://app.usetode.dev)
+
 ## Packages
 
 | Package | Description |
