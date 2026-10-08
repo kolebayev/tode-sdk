@@ -49,10 +49,12 @@ vi.mock('@tode-sdk/core', async (importOriginal) => {
   };
 });
 
+const { resetSessionSocket } = await import('@tode-sdk/core');
 const { TodeClient } = await import('./TodeClient.js');
 
 describe('TodeClient WebSocket reconnection', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -63,8 +65,9 @@ describe('TodeClient WebSocket reconnection', () => {
     vi.unstubAllGlobals();
   });
 
-  it('automatically reconnects after an unexpected WebSocket close', () => {
+  it('automatically reconnects after an unexpected WebSocket close', async () => {
     const client = new TodeClient();
+    await Promise.resolve(); // auto-start runs one microtask after construction
 
     expect(FakeWebSocket.instances).toHaveLength(1);
     FakeWebSocket.instances[0].simulateOpen();
@@ -77,8 +80,9 @@ describe('TodeClient WebSocket reconnection', () => {
     client.destroy();
   });
 
-  it('stops reconnecting once destroy() is called', () => {
+  it('stops reconnecting once destroy() is called', async () => {
     const client = new TodeClient();
+    await Promise.resolve();
 
     expect(FakeWebSocket.instances).toHaveLength(1);
     FakeWebSocket.instances[0].simulateUnexpectedClose();
@@ -92,6 +96,7 @@ describe('TodeClient WebSocket reconnection', () => {
 
 describe('TodeClient safety-net cleanup', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
   });
@@ -100,11 +105,75 @@ describe('TodeClient safety-net cleanup', () => {
     vi.unstubAllGlobals();
   });
 
-  it('destroys itself automatically when the page/iframe unloads without an explicit destroy() call', () => {
+  it('destroys itself automatically when the page/iframe unloads without an explicit destroy() call', async () => {
     new TodeClient();
+    await Promise.resolve();
 
     window.dispatchEvent(new Event('beforeunload'));
 
     expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CLOSED);
+  });
+});
+
+describe('TodeClient events and options', () => {
+  beforeEach(() => {
+    resetSessionSocket();
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers 'ready' and the first wsStateChange to listeners added right after construction", async () => {
+    const client = new TodeClient();
+    const onReady = vi.fn();
+    const onWsState = vi.fn();
+    client.on('ready', onReady);
+    client.on('wsStateChange', onWsState);
+
+    await Promise.resolve();
+
+    expect(onReady).toHaveBeenCalledWith(true);
+    expect(onWsState).toHaveBeenCalledWith('connecting');
+
+    client.destroy();
+  });
+
+  it('does not start when destroyed before the deferred auto-start runs', async () => {
+    const client = new TodeClient();
+    client.destroy();
+
+    await Promise.resolve();
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it('asks the plugin controller for the config once it is listening', async () => {
+    const postSpy = vi.spyOn(window.parent, 'postMessage');
+
+    const client = new TodeClient();
+    await Promise.resolve();
+
+    expect(postSpy).toHaveBeenCalledWith(
+      { pluginMessage: { type: 'TODE_UI_READY' }, pluginId: '*' },
+      '*'
+    );
+
+    client.destroy();
+    postSpy.mockRestore();
+  });
+
+  it('passes track options through to tode', async () => {
+    const { tode } = await import('@tode-sdk/core');
+    const client = new TodeClient({ autoStart: false });
+    const options = { eventSource: 'plugin' as const };
+
+    client.trackAction('a', options);
+    client.trackActionWithMetric('b', 2, options);
+
+    expect(tode.trackAction).toHaveBeenCalledWith('a', options);
+    expect(tode.trackActionWithMetric).toHaveBeenCalledWith('b', 2, options);
   });
 });

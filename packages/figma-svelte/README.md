@@ -27,7 +27,7 @@ npm install @tode-sdk/core @tode-sdk/figma-svelte
 
 A pre-built default singleton is also available for quick use: `import { todeStore } from '@tode-sdk/figma-svelte'`. Prefer `createTodeStore()` if you need to call `destroy()` yourself or want non-default options.
 
-Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [root README](../../README.md).
+Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [docs](https://docs.usetode.dev).
 
 ## `createTodeStore(config?)`
 

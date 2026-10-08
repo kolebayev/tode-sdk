@@ -1,9 +1,11 @@
 import { ref, onMounted, onUnmounted, readonly, type Ref } from 'vue';
 import {
   tode,
-  createSessionSocket,
+  acquireSessionSocket,
+  requestConfigFromPlugin,
   type SessionSocket,
   type TodeConfig,
+  type TrackOptions,
   type WebSocketState,
 } from '@tode-sdk/core';
 
@@ -25,6 +27,14 @@ export interface UseTodeReturn {
   isReady: Readonly<Ref<boolean>>;
   /** Current WebSocket connection state */
   wsState: Readonly<Ref<WebSocketState>>;
+  /** Track a simple action event (same as `tode.trackAction`) */
+  trackAction: (actionName: string, options?: TrackOptions) => Promise<void>;
+  /** Track an action with a numeric metric (same as `tode.trackActionWithMetric`) */
+  trackActionWithMetric: (
+    actionName: string,
+    value: number,
+    options?: TrackOptions
+  ) => Promise<void>;
 }
 
 /**
@@ -43,12 +53,10 @@ export interface UseTodeReturn {
  * <script setup lang="ts">
  * import { useTode } from '@tode-sdk/figma-vue';
  *
- * const { tode, isReady } = useTode();
+ * const { trackAction } = useTode();
  *
  * const handleClick = () => {
- *   if (isReady.value) {
- *     tode.trackAction('button_clicked');
- *   }
+ *   trackAction('button_clicked');
  * };
  * </script>
  *
@@ -107,10 +115,10 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
    * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = () => {
-    // Prevent multiple connections
+    // One handle per instance; the connection itself is shared across the UI
     if (sessionSocket) return;
 
-    sessionSocket = createSessionSocket({
+    sessionSocket = acquireSessionSocket({
       debug,
       pingInterval,
       logPrefix: '[TODE:vue]',
@@ -149,6 +157,8 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   onMounted(() => {
     window.addEventListener('message', handleMessage);
     log('Message listener attached');
+    // Ask for the config in case the plugin posted it before this listener existed
+    requestConfigFromPlugin();
 
     // Check if already ready
     if (tode.isReady) {
@@ -167,5 +177,8 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
     tode,
     isReady: readonly(isReady),
     wsState: readonly(wsState),
+    trackAction: (actionName, options) => tode.trackAction(actionName, options),
+    trackActionWithMetric: (actionName, value, options) =>
+      tode.trackActionWithMetric(actionName, value, options),
   };
 }

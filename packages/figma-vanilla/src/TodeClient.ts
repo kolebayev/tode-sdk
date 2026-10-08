@@ -1,8 +1,10 @@
 import {
   tode,
-  createSessionSocket,
+  acquireSessionSocket,
+  requestConfigFromPlugin,
   type SessionSocket,
   type TodeConfig,
+  type TrackOptions,
   type WebSocketState,
 } from '@tode-sdk/core';
 
@@ -100,6 +102,7 @@ export class TodeClient {
   private _isReady = false;
   private _wsState: WebSocketState = 'disconnected';
   private _started = false;
+  private _destroyed = false;
 
   /**
    * Create a new TodeClient instance.
@@ -122,9 +125,12 @@ export class TodeClient {
       this._isReady = true;
     }
 
-    // Auto-start if configured
+    // Auto-start if configured. Deferred one microtask so listeners added with
+    // on() right after construction see the first 'ready' and 'wsStateChange'.
     if (this.config.autoStart) {
-      this.start();
+      queueMicrotask(() => {
+        if (!this._destroyed) this.start();
+      });
     }
   }
 
@@ -145,7 +151,7 @@ export class TodeClient {
 
   /**
    * Start listening for messages from the plugin controller.
-   * Called automatically if autoStart is true (default).
+   * Called automatically, one microtask after construction, if autoStart is true (default).
    */
   start(): void {
     if (this._started) {
@@ -165,8 +171,9 @@ export class TodeClient {
 
     this.log('Started');
 
-    // Initialize WebSocket if already ready
+    // Already ready (the config arrived before this client existed)
     if (this._isReady) {
+      this.emit('ready', true);
       this.initWebSocket();
     }
   }
@@ -201,16 +208,16 @@ export class TodeClient {
    * Track a simple action event.
    * Convenience method that delegates to tode.trackAction.
    */
-  trackAction(actionName: string): Promise<void> {
-    return tode.trackAction(actionName);
+  trackAction(actionName: string, options?: TrackOptions): Promise<void> {
+    return tode.trackAction(actionName, options);
   }
 
   /**
    * Track an action with a numeric metric.
    * Convenience method that delegates to tode.trackActionWithMetric.
    */
-  trackActionWithMetric(actionName: string, value: number): Promise<void> {
-    return tode.trackActionWithMetric(actionName, value);
+  trackActionWithMetric(actionName: string, value: number, options?: TrackOptions): Promise<void> {
+    return tode.trackActionWithMetric(actionName, value, options);
   }
 
   /**
@@ -218,6 +225,8 @@ export class TodeClient {
    * Call this when the plugin UI is closing.
    */
   destroy(): void {
+    this._destroyed = true;
+
     // Remove message listener
     if (this.messageHandler) {
       window.removeEventListener('message', this.messageHandler);
@@ -280,8 +289,11 @@ export class TodeClient {
 
         // Update the Tode instance
         tode.updateFromConfig(message);
-        this._isReady = true;
-        this.emit('ready', true);
+        // The config can arrive again (it is re-sent on request); 'ready' fires once
+        if (!this._isReady) {
+          this._isReady = true;
+          this.emit('ready', true);
+        }
 
         // Initialize WebSocket after receiving config
         this.initWebSocket();
@@ -290,6 +302,8 @@ export class TodeClient {
 
     window.addEventListener('message', this.messageHandler);
     this.log('Message listener attached');
+    // Ask for the config in case the plugin posted it before this listener existed
+    requestConfigFromPlugin();
   }
 
   /**
@@ -304,10 +318,10 @@ export class TodeClient {
    * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   private initWebSocket(): void {
-    // Prevent multiple connections
+    // One handle per instance; the connection itself is shared across the UI
     if (this.sessionSocket) return;
 
-    this.sessionSocket = createSessionSocket({
+    this.sessionSocket = acquireSessionSocket({
       debug: this.config.debug,
       pingInterval: this.config.pingInterval,
       logPrefix: '[TODE:vanilla]',

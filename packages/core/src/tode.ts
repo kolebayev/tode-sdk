@@ -15,6 +15,10 @@ import { VERSION } from './version.js';
 const DEFAULT_API_URL = 'https://processing.usetode.dev';
 /** Default production WebSocket URL */
 const DEFAULT_WS_URL = 'wss://processing.usetode.dev';
+/** How many events tracked before Tode is ready are kept; later ones are dropped */
+const MAX_QUEUED_EVENTS = 50;
+/** Message the UI adapters post to the plugin controller to ask for the config */
+export const UI_READY_MESSAGE = 'TODE_UI_READY';
 /** Default timeout (ms) for outgoing API requests, so a hanging network call can't block init() forever */
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
@@ -23,23 +27,76 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
  * An optional caller-supplied `signal` is bridged into the internal timeout
  * controller so either one can cancel the request (kept manual, rather than
  * `AbortSignal.any`, for Node 18 compatibility).
+ *
+ * The Figma plugin sandbox (code.ts) has `fetch` but no `AbortController`, and
+ * its `fetch` ignores `signal`. There the request can't be cancelled, so the
+ * timeout only stops the caller from waiting on it.
  */
 function fetchWithTimeout(
   url: string,
   init: RequestInit & { signal?: AbortSignal },
   timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
 ): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    const { signal: _signal, ...rest } = init;
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    return Promise.race([fetch(url, rest), timeout]).finally(() => clearTimeout(timer));
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   const externalSignal = init.signal;
   const onExternalAbort = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
   externalSignal?.addEventListener('abort', onExternalAbort);
 
   return fetch(url, { ...init, signal: controller.signal }).finally(() => {
     clearTimeout(timer);
     externalSignal?.removeEventListener('abort', onExternalAbort);
   });
+}
+
+/**
+ * Build the error for a non-2xx response, keeping the API's own explanation
+ * (`{ error, message }`) so a 403/429 in the console says which limit was hit.
+ */
+async function httpError(response: Response): Promise<Error> {
+  let detail = '';
+  try {
+    const body = await response.json();
+    if (typeof body?.message === 'string') detail = `: ${body.message}`;
+  } catch {
+    // Body is not JSON; the status alone has to do.
+  }
+  return new Error(`HTTP ${response.status}${detail}`);
+}
+
+/** An event as the caller tracked it; the payload is built when it is sent. */
+interface TrackedEvent {
+  type: 'action' | 'action_with_metric';
+  actionName: string;
+  actionValue?: number;
+  timestamp: number;
+  options?: TrackOptions;
+}
+
+/**
+ * Ask the plugin controller to (re)send the Tode config. UI adapters call this
+ * once their `message` listener is attached, so a config posted before the
+ * listener existed, or lost when the plugin reopened its UI, is not lost for good.
+ * No-op outside a browser.
+ */
+export function requestConfigFromPlugin(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.parent.postMessage({ pluginMessage: { type: UI_READY_MESSAGE }, pluginId: '*' }, '*');
+  } catch {
+    // No reachable parent frame: nothing to ask.
+  }
 }
 
 /**
@@ -79,6 +136,8 @@ class Tode implements ITode {
   private _apiUrl: string = DEFAULT_API_URL;
   private _wsUrl: string = DEFAULT_WS_URL;
   private _apiKey: string | null = null;
+  private _queue: TrackedEvent[] = [];
+  private _queueOverflowLogged = false;
 
   private _figmaData: FigmaData = {
     figma_userId: null,
@@ -193,7 +252,7 @@ class Tode implements ITode {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw await httpError(response);
       }
 
       const data = await response.json();
@@ -221,19 +280,41 @@ class Tode implements ITode {
       figmaData: this._figmaData,
     };
 
-    figma.ui.postMessage({ type: 'TODE_DATA', message: config });
-    this.log('Config sent to UI');
+    try {
+      figma.ui.postMessage({ type: 'TODE_DATA', message: config });
+      this.log('Config sent to UI');
+    } catch (error) {
+      // A plugin without a UI has nobody to send the config to.
+      this.log('Config not sent, no UI:', error);
+    }
+  }
+
+  /**
+   * Answer a UI adapter's request for the config. `figma.ui.on` adds a
+   * listener next to the plugin's own `figma.ui.onmessage`, it does not
+   * replace it.
+   */
+  private listenForUIReady(): void {
+    try {
+      figma.ui.on?.('message', (message: unknown) => {
+        if ((message as { type?: unknown } | null)?.type !== UI_READY_MESSAGE) return;
+        // Before init() finishes, the config it posts at the end is the answer.
+        if (this._isReady) this.sendConfigToUI();
+      });
+    } catch (error) {
+      this.log('Could not listen for UI messages:', error);
+    }
   }
 
   /**
    * Build the base payload for tracking events.
    */
-  private buildBasePayload(actionName: string, options?: TrackOptions) {
+  private buildBasePayload(event: TrackedEvent) {
     return {
-      actionName,
-      timestamp: Date.now(),
+      actionName: event.actionName,
+      timestamp: event.timestamp,
       appSource: this._appSource,
-      eventSource: options?.eventSource ?? this._eventSource,
+      eventSource: event.options?.eventSource ?? this._eventSource,
       userCountry: this._userCountry ?? 'unknown',
       ...this._figmaData,
       figma_userId: this._figmaData.figma_userId ?? '',
@@ -242,31 +323,68 @@ class Tode implements ITode {
   }
 
   /**
-   * Send tracking data to the API.
+   * Send an event now, or hold it until Tode is ready. Events tracked early
+   * (typically the UI's first `trackAction` before the config arrives) keep
+   * their original timestamp and are sent by `flushQueue()`.
    */
-  private async sendTrackingData(
-    endpoint: string,
-    payload: ActionEventPayload | ActionWithMetricPayload,
-    signal?: AbortSignal
-  ): Promise<void> {
-    if (!this._apiKey) {
-      this.logError('Cannot track: Tode not initialized');
+  private async dispatch(event: TrackedEvent): Promise<void> {
+    if (this._isReady && this._apiKey) {
+      await this.send(event);
       return;
     }
+
+    if (this._queue.length >= MAX_QUEUED_EVENTS) {
+      if (!this._queueOverflowLogged) {
+        this._queueOverflowLogged = true;
+        this.logError(
+          `Tode is not ready and ${MAX_QUEUED_EVENTS} events are already waiting; dropping new events until it is`
+        );
+      }
+      return;
+    }
+
+    this._queue.push(event);
+    this.log(`${event.type}:${event.actionName} queued until ready`);
+  }
+
+  /**
+   * Send everything tracked before Tode became ready.
+   */
+  private async flushQueue(): Promise<void> {
+    if (this._queue.length === 0) return;
+
+    const events = this._queue;
+    this._queue = [];
+    this._queueOverflowLogged = false;
+    this.log(`Sending ${events.length} queued event(s)`);
+    await Promise.all(events.map((event) => this.send(event)));
+  }
+
+  /**
+   * Send one event to the API. Never rejects: failures are logged.
+   */
+  private async send(event: TrackedEvent): Promise<void> {
+    const base = this.buildBasePayload(event);
+    const payload: ActionEventPayload | ActionWithMetricPayload =
+      event.type === 'action_with_metric'
+        ? { type: 'action_with_metric', actionValue: event.actionValue as number, ...base }
+        : { type: 'action', ...base };
+    const endpoint =
+      event.type === 'action_with_metric' ? '/figma/track-action-with-metric' : '/figma/track-action';
 
     try {
       const response = await fetchWithTimeout(`${this._apiUrl}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': this._apiKey,
+          'X-API-Key': this._apiKey as string,
         },
         body: JSON.stringify(payload),
-        signal,
+        signal: event.options?.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw await httpError(response);
       }
 
       const data = await response.json();
@@ -283,10 +401,13 @@ class Tode implements ITode {
    *
    * This method must be called from the plugin's main code (code.ts),
    * where the `figma` global is available. It extracts Figma-specific
-   * data and sends configuration to the UI.
+   * data and sends configuration to the UI. Events tracked before it
+   * finishes are sent once it does.
+   *
+   * Never throws: called outside the plugin controller (for example from
+   * the UI) it logs an error and returns without initializing.
    *
    * @param options - Initialization options including API key
-   * @throws Error if called outside Figma plugin environment
    *
    * @example
    * ```typescript
@@ -326,6 +447,9 @@ class Tode implements ITode {
       figma_apiVersion: figma.apiVersion ?? null,
     };
 
+    // Registered before the first await so a UI that mounts meanwhile is heard
+    this.listenForUIReady();
+
     // Fetch user country
     await this.fetchUserCountry(options.signal);
 
@@ -334,6 +458,8 @@ class Tode implements ITode {
 
     this._isReady = true;
     this.log('Initialized successfully');
+
+    await this.flushQueue();
   }
 
   /**
@@ -356,6 +482,8 @@ class Tode implements ITode {
     this._isReady = true;
 
     this.log('Updated from config');
+
+    void this.flushQueue();
   }
 
   /**
@@ -363,6 +491,9 @@ class Tode implements ITode {
    *
    * Use this for tracking user interactions, feature usage, or any
    * event that doesn't require an associated numeric value.
+   *
+   * Safe to call before Tode is ready: the event is held (up to 50) and sent
+   * with its original timestamp once the config arrives.
    *
    * @param actionName - Identifier for the action (e.g., 'button_clicked')
    * @param options - Optional tracking options
@@ -382,12 +513,7 @@ class Tode implements ITode {
       return;
     }
 
-    const payload: ActionEventPayload = {
-      type: 'action',
-      ...this.buildBasePayload(actionName, options),
-    };
-
-    await this.sendTrackingData('/figma/track-action', payload, options?.signal);
+    await this.dispatch({ type: 'action', actionName, timestamp: Date.now(), options });
   }
 
   /**
@@ -426,13 +552,13 @@ class Tode implements ITode {
       return;
     }
 
-    const payload: ActionWithMetricPayload = {
+    await this.dispatch({
       type: 'action_with_metric',
+      actionName,
       actionValue: value,
-      ...this.buildBasePayload(actionName, options),
-    };
-
-    await this.sendTrackingData('/figma/track-action-with-metric', payload, options?.signal);
+      timestamp: Date.now(),
+      options,
+    });
   }
 
   /**

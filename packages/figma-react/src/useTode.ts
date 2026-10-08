@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   tode,
-  createSessionSocket,
+  acquireSessionSocket,
+  requestConfigFromPlugin,
   type SessionSocket,
   type TodeConfig,
+  type TrackOptions,
   type WebSocketState,
 } from '@tode-sdk/core';
 
@@ -25,7 +27,21 @@ export interface UseTodeReturn {
   isReady: boolean;
   /** Current WebSocket connection state */
   wsState: WebSocketState;
+  /** Track a simple action event (same as `tode.trackAction`; stable across renders) */
+  trackAction: (actionName: string, options?: TrackOptions) => Promise<void>;
+  /** Track an action with a numeric metric (same as `tode.trackActionWithMetric`; stable across renders) */
+  trackActionWithMetric: (
+    actionName: string,
+    value: number,
+    options?: TrackOptions
+  ) => Promise<void>;
 }
+
+// Module-level so the hook hands out the same function identity on every render.
+const trackAction: UseTodeReturn['trackAction'] = (actionName, options) =>
+  tode.trackAction(actionName, options);
+const trackActionWithMetric: UseTodeReturn['trackActionWithMetric'] = (actionName, value, options) =>
+  tode.trackActionWithMetric(actionName, value, options);
 
 /**
  * React hook for using Tode Analytics in Figma plugin UI.
@@ -43,12 +59,10 @@ export interface UseTodeReturn {
  * import { useTode } from '@tode-sdk/figma-react';
  *
  * function App() {
- *   const { tode, isReady } = useTode();
+ *   const { trackAction } = useTode();
  *
  *   const handleClick = () => {
- *     if (isReady) {
- *       tode.trackAction('button_clicked');
- *     }
+ *     trackAction('button_clicked');
  *   };
  *
  *   return <button onClick={handleClick}>Track Click</button>;
@@ -84,6 +98,11 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
   // Ref for the shared session WebSocket (connect/reconnect/ping lifecycle lives in core)
   const sessionSocketRef = useRef<SessionSocket | null>(null);
 
+  // The socket outlives renders, so it reads the callback through a ref;
+  // an inline arrow would otherwise stay frozen at its first-render version.
+  const onStateChangeRef = useRef(onWebSocketStateChange);
+  onStateChangeRef.current = onWebSocketStateChange;
+
   /**
    * Log helper for debug mode.
    */
@@ -100,22 +119,22 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
    * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = useCallback(() => {
-    // Prevent multiple connections
+    // One handle per instance; the connection itself is shared across the UI
     if (sessionSocketRef.current) return;
 
-    const socket = createSessionSocket({
+    const socket = acquireSessionSocket({
       debug,
       pingInterval,
       logPrefix: '[TODE:react]',
       getConfig: () => tode.getWebSocketConfig(),
       onStateChange: (state) => {
         setWsState(state);
-        onWebSocketStateChange?.(state);
+        onStateChangeRef.current?.(state);
       },
     });
     sessionSocketRef.current = socket;
     socket.start();
-  }, [debug, pingInterval, onWebSocketStateChange]);
+  }, [debug, pingInterval]);
 
   /**
    * Clean up the session WebSocket connection.
@@ -147,6 +166,8 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
 
     window.addEventListener('message', handleMessage);
     log('Message listener attached');
+    // Ask for the config in case the plugin posted it before this listener existed
+    requestConfigFromPlugin();
 
     return () => {
       window.removeEventListener('message', handleMessage);
@@ -172,5 +193,5 @@ export function useTode(options: UseTodeOptions = {}): UseTodeReturn {
     };
   }, [cleanupWebSocket]);
 
-  return { tode, isReady, wsState };
+  return { tode, isReady, wsState, trackAction, trackActionWithMetric };
 }

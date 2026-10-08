@@ -16,6 +16,8 @@
     "build:vanilla": "npm run build -w @tode-sdk/figma-vanilla",
     "build:svelte": "npm run build -w @tode-sdk/figma-svelte",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "release": "npm run build && npm run typecheck && npm test && npm publish --workspaces",
     "clean": "rm -rf packages/*/dist"
   },
   "devDependencies": {
@@ -26,8 +28,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kolebayev/tode-analytics.git"
+    "url": "git+https://github.com/kolebayev/tode-sdk.git"
   },
   "author": "Tode Analytics",
-  "license": "MIT"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kolebayev/tode-sdk/issues"
+  }
 }

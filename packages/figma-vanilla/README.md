@@ -29,7 +29,7 @@ document.querySelector('#btn')?.addEventListener('click', () => {
 client.destroy();
 ```
 
-Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [root README](../../README.md).
+Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [docs](https://docs.usetode.dev).
 
 ## `new TodeClient(config?)`
 
@@ -37,14 +37,14 @@ Requires `tode.init({ apiKey })` to have already run in the plugin controller (`
 |---|---|---|---|
 | `debug` | `boolean` | `false` | Log internal adapter activity to the console |
 | `pingInterval` | `number` | `5000` | WebSocket keepalive ping interval, in ms |
-| `autoStart` | `boolean` | `true` | Start listening for the plugin controller's config message immediately on construction. Set `false` to call `client.start()` manually later. |
+| `autoStart` | `boolean` | `true` | Start listening for the plugin controller's config message one microtask after construction, so `on()` listeners added right after `new TodeClient()` receive the first events. Set `false` to call `client.start()` manually later. |
 
 | Member | Description |
 |---|---|
 | `on(event, listener)` / `off(event, listener)` | Subscribe/unsubscribe to `'ready'` (`boolean`) or `'wsStateChange'` (`WebSocketState`) events |
 | `isReady` / `wsState` | Current state, read synchronously |
 | `tode` | Direct access to the underlying `@tode-sdk/core` singleton |
-| `trackAction(name)` / `trackActionWithMetric(name, value)` | Convenience delegates to `tode.trackAction` / `tode.trackActionWithMetric` |
+| `trackAction(name, options?)` / `trackActionWithMetric(name, value, options?)` | Convenience delegates to `tode.trackAction` / `tode.trackActionWithMetric` |
 | `start()` | Begin listening for plugin controller messages (no-op if already started or `autoStart` already did it) |
 | `destroy()` | Remove listeners, close the WebSocket, and clear all event subscriptions |
 

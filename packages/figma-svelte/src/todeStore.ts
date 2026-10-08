@@ -1,9 +1,11 @@
 import { writable, derived, type Readable } from 'svelte/store';
 import {
   tode,
-  createSessionSocket,
+  acquireSessionSocket,
+  requestConfigFromPlugin,
   type SessionSocket,
   type TodeConfig,
+  type TrackOptions,
   type WebSocketState,
 } from '@tode-sdk/core';
 
@@ -28,9 +30,13 @@ export interface TodeStoreValue {
 /** Return type of createTodeStore */
 export interface TodeStore extends Readable<TodeStoreValue> {
   /** Track a simple action event */
-  trackAction: (actionName: string) => Promise<void>;
+  trackAction: (actionName: string, options?: TrackOptions) => Promise<void>;
   /** Track an action with a numeric metric */
-  trackActionWithMetric: (actionName: string, value: number) => Promise<void>;
+  trackActionWithMetric: (
+    actionName: string,
+    value: number,
+    options?: TrackOptions
+  ) => Promise<void>;
   /** Clean up resources (call on component destroy) */
   destroy: () => void;
 }
@@ -113,10 +119,10 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
    * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   const initWebSocket = () => {
-    // Prevent multiple connections
+    // One handle per instance; the connection itself is shared across the UI
     if (sessionSocket) return;
 
-    sessionSocket = createSessionSocket({
+    sessionSocket = acquireSessionSocket({
       debug,
       pingInterval,
       logPrefix: '[TODE:svelte]',
@@ -154,6 +160,8 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
 
     window.addEventListener('message', messageHandler);
     log('Message listener attached');
+    // Ask for the config in case the plugin posted it before this listener existed
+    requestConfigFromPlugin();
 
     // Safety net: if the caller forgets to call destroy() explicitly, at
     // least stop pinging/reconnecting when the page/iframe unloads.
@@ -200,10 +208,11 @@ export function createTodeStore(config: TodeStoreConfig = {}): TodeStore {
   return {
     subscribe: store.subscribe,
 
-    trackAction: (actionName: string) => tode.trackAction(actionName),
+    trackAction: (actionName: string, options?: TrackOptions) =>
+      tode.trackAction(actionName, options),
 
-    trackActionWithMetric: (actionName: string, value: number) =>
-      tode.trackActionWithMetric(actionName, value),
+    trackActionWithMetric: (actionName: string, value: number, options?: TrackOptions) =>
+      tode.trackActionWithMetric(actionName, value, options),
 
     destroy,
   };

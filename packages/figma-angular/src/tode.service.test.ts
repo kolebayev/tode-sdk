@@ -50,6 +50,7 @@ vi.mock('@tode-sdk/core', async (importOriginal) => {
   };
 });
 
+const { resetSessionSocket } = await import('@tode-sdk/core');
 const { TodeService } = await import('./tode.service.js');
 
 // Real NgZone requires the zone.js polyfill; the service only calls run()/runOutsideAngular(),
@@ -63,6 +64,7 @@ function fakeNgZone(): NgZone {
 
 describe('TodeService WebSocket reconnection', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -104,6 +106,7 @@ describe('TodeService WebSocket reconnection', () => {
 
 describe('TodeService configure() ordering', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
   });
@@ -131,5 +134,16 @@ describe('TodeService configure() ordering', () => {
 
     service.ngOnDestroy();
     logSpy.mockRestore();
+  });
+});
+
+describe('TodeService dependency injection', () => {
+  it('carries a precompiled root provider, so AOT apps need no JIT compiler', () => {
+    // Reading ɵprov on a class that only has a bare @Injectable decorator throws
+    // here, because @angular/compiler is not loaded (as in an AOT build).
+    const def = (TodeService as unknown as { ɵprov: { providedIn: string; factory: unknown } }).ɵprov;
+
+    expect(def.providedIn).toBe('root');
+    expect(def.factory).toBeTypeOf('function');
   });
 });

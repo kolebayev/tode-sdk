@@ -7,7 +7,11 @@ export interface SessionSocketOptions {
   pingInterval?: number;
   /** Enable debug logging (default: false) */
   debug?: boolean;
-  /** Max automatic reconnect attempts after an unexpected close before giving up (default: 5) */
+  /**
+   * Max automatic reconnect attempts after an unexpected close before giving up
+   * and reporting `'error'` (default: no limit, since a plugin UI can stay open
+   * through hours of laptop sleep)
+   */
   maxReconnectAttempts?: number;
   /** Base delay in ms for exponential backoff between reconnect attempts (default: 1000) */
   reconnectBaseDelayMs?: number;
@@ -42,7 +46,7 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
   const {
     pingInterval = 5000,
     debug = false,
-    maxReconnectAttempts = 5,
+    maxReconnectAttempts = Infinity,
     reconnectBaseDelayMs = 1000,
     reconnectMaxDelayMs = 30_000,
     onStateChange,
@@ -56,6 +60,9 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
   let reconnectAttempts = 0;
   let destroyed = false;
   let state: WebSocketState = 'disconnected';
+  // Stays the same across reconnects, so the rows they produce can be told
+  // apart from separate sessions.
+  const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
   const log = (message: string, ...args: unknown[]) => {
     if (debug) console.log(`${logPrefix} ${message}`, ...args);
@@ -91,7 +98,7 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
 
     const delay = Math.min(reconnectBaseDelayMs * 2 ** reconnectAttempts, reconnectMaxDelayMs);
     reconnectAttempts += 1;
-    log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+    log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
 
     reconnectTimeoutId = setTimeout(() => {
       reconnectTimeoutId = null;
@@ -110,7 +117,7 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
 
     setState('connecting');
 
-    const queryString = new URLSearchParams(config.params).toString();
+    const queryString = new URLSearchParams({ ...config.params, session_id: sessionId }).toString();
     const wsUrl = `${config.url}?${queryString}`;
     log('Connecting to WebSocket:', config.url);
 
@@ -144,7 +151,8 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
       };
 
       socket.onerror = (error) => {
-        console.error(`${logPrefix} WebSocket error:`, error);
+        // Debug only: the event carries no detail, and the close that follows reconnects.
+        log('WebSocket error:', error);
         setState('error');
       };
     } catch (error) {
@@ -154,15 +162,30 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
     }
   };
 
+  // Back online (network returned, laptop woke up): retry now instead of
+  // waiting out the backoff, and resume if a finite attempt limit was used up.
+  const onOnline = () => {
+    if (destroyed || ws) return;
+    log('Network is back, reconnecting');
+    clearReconnectTimer();
+    reconnectAttempts = 0;
+    connect();
+  };
+  const canListen = typeof window !== 'undefined' && typeof window.addEventListener === 'function';
+  let started = false;
+
   return {
     get state() {
       return state;
     },
     start() {
+      if (!started && canListen) window.addEventListener('online', onOnline);
+      started = true;
       connect();
     },
     destroy() {
       destroyed = true;
+      if (canListen) window.removeEventListener('online', onOnline);
       clearReconnectTimer();
       clearPing();
       if (ws) {
@@ -171,4 +194,100 @@ export function createSessionSocket(options: SessionSocketOptions = {}): Session
       }
     },
   };
+}
+
+interface SharedSessionSocket {
+  socket: SessionSocket;
+  listeners: Set<WebSocketStateCallback>;
+  holders: number;
+  started: boolean;
+}
+
+let shared: SharedSessionSocket | null = null;
+
+/**
+ * Get a handle on the one session socket shared by everything in this UI.
+ *
+ * A plugin UI is one session however many components call `useTode()` (or
+ * create a store or client), so they all hold the same connection instead of
+ * opening one each. The connection opens on the first `start()` and closes
+ * when the last holder calls `destroy()`.
+ *
+ * `pingInterval`, `debug`, `getConfig` and the reconnect settings come from
+ * whoever acquires first; `onStateChange` is per holder.
+ */
+export function acquireSessionSocket(options: SessionSocketOptions = {}): SessionSocket {
+  const { onStateChange, ...socketOptions } = options;
+
+  if (!shared) {
+    const listeners = new Set<WebSocketStateCallback>();
+    shared = {
+      listeners,
+      holders: 0,
+      started: false,
+      socket: createSessionSocket({
+        ...socketOptions,
+        onStateChange: (state) => {
+          listeners.forEach((listener) => {
+            try {
+              listener(state);
+            } catch (error) {
+              console.error('[TODE:core] Error in WebSocket state listener:', error);
+            }
+          });
+        },
+      }),
+    };
+  }
+
+  const current = shared;
+  current.holders += 1;
+  let joined = false;
+  let released = false;
+
+  return {
+    get state() {
+      return released ? 'disconnected' : current.socket.state;
+    },
+    start() {
+      if (released) return;
+      if (!joined) {
+        joined = true;
+        if (onStateChange) current.listeners.add(onStateChange);
+        // A holder that joins a live connection missed its earlier state changes.
+        if (current.started && current.socket.state !== 'disconnected') {
+          onStateChange?.(current.socket.state);
+        }
+      }
+      current.started = true;
+      current.socket.start();
+    },
+    destroy() {
+      if (released) return;
+      released = true;
+      current.holders -= 1;
+
+      if (current.holders > 0) {
+        if (onStateChange) current.listeners.delete(onStateChange);
+        return;
+      }
+
+      // Last holder: close the connection, letting it report the final state first.
+      if (shared === current) shared = null;
+      current.socket.destroy();
+      current.listeners.clear();
+    },
+  };
+}
+
+/**
+ * Close the shared session socket whatever is still holding it (useful for testing).
+ * @internal
+ */
+export function resetSessionSocket(): void {
+  const current = shared;
+  shared = null;
+  if (!current) return;
+  current.listeners.clear();
+  current.socket.destroy();
 }

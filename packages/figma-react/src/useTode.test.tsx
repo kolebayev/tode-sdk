@@ -51,10 +51,12 @@ vi.mock('@tode-sdk/core', async (importOriginal) => {
 });
 
 // Imported after the mock so useTode picks up the mocked `tode`.
+const { resetSessionSocket } = await import('@tode-sdk/core');
 const { useTode } = await import('./useTode.js');
 
 describe('useTode WebSocket reconnection', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -89,5 +91,49 @@ describe('useTode WebSocket reconnection', () => {
 
     vi.advanceTimersByTime(10_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('calls the latest onWebSocketStateChange, not the one from the first render', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = renderHook(({ cb }) => useTode({ onWebSocketStateChange: cb }), {
+      initialProps: { cb: first },
+    });
+    first.mockClear();
+
+    rerender({ cb: second });
+    FakeWebSocket.instances[0].simulateOpen();
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith('connected');
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('shares one connection between components and keeps it until the last unmounts', () => {
+    const first = renderHook(() => useTode());
+    const second = renderHook(() => useTode());
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    first.unmount();
+    expect(FakeWebSocket.instances[0].readyState).not.toBe(FakeWebSocket.CLOSED);
+
+    second.unmount();
+    expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it('returns stable trackAction and trackActionWithMetric that pass through to tode', async () => {
+    const { tode } = await import('@tode-sdk/core');
+    const { result, rerender } = renderHook(() => useTode());
+    const before = result.current.trackAction;
+    rerender();
+    const options = { eventSource: 'ui' as const };
+
+    result.current.trackAction('export_clicked', options);
+    result.current.trackActionWithMetric('items_exported', 3, options);
+
+    expect(result.current.trackAction).toBe(before);
+    expect(tode.trackAction).toHaveBeenCalledWith('export_clicked', options);
+    expect(tode.trackActionWithMetric).toHaveBeenCalledWith('items_exported', 3, options);
   });
 });

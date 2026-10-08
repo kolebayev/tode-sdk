@@ -54,10 +54,12 @@ vi.mock('@tode-sdk/core', async (importOriginal) => {
 // (`export const todeStore = createTodeStore()`) connects eagerly at import
 // time since the mocked `tode.isReady` above is already `true`.
 vi.stubGlobal('WebSocket', FakeWebSocket);
+const { resetSessionSocket } = await import('@tode-sdk/core');
 const { createTodeStore } = await import('./todeStore.js');
 
 describe('createTodeStore WebSocket reconnection', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -98,6 +100,7 @@ describe('createTodeStore WebSocket reconnection', () => {
 
 describe('createTodeStore safety-net cleanup', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
   });

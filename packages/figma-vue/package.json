@@ -7,14 +7,20 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external vue",
@@ -46,8 +52,8 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kolebayev/tode-analytics.git",
-    "directory": "tode-sdk/packages/figma-vue"
+    "url": "git+https://github.com/kolebayev/tode-sdk.git",
+    "directory": "packages/figma-vue"
   },
   "license": "MIT",
   "publishConfig": {
@@ -56,5 +62,9 @@
   "sideEffects": false,
   "engines": {
     "node": ">=18.0.0"
+  },
+  "homepage": "https://docs.usetode.dev",
+  "bugs": {
+    "url": "https://github.com/kolebayev/tode-sdk/issues"
   }
 }

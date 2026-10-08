@@ -1,11 +1,13 @@
-import { Injectable, OnDestroy, NgZone } from '@angular/core';
+import { NgZone, ɵɵdefineInjectable, ɵɵinject, type OnDestroy } from '@angular/core';
 import { BehaviorSubject, Observable, Subject, fromEvent } from 'rxjs';
 import { takeUntil, filter, map } from 'rxjs/operators';
 import {
   tode,
-  createSessionSocket,
+  acquireSessionSocket,
+  requestConfigFromPlugin,
   type SessionSocket,
   type TodeConfig,
+  type TrackOptions,
   type WebSocketState,
 } from '@tode-sdk/core';
 
@@ -72,10 +74,19 @@ export interface TodeServiceConfig {
  * }
  * ```
  */
-@Injectable({
-  providedIn: 'root',
-})
 export class TodeService implements OnDestroy {
+  /**
+   * Hand-written injectable definition (what `@Injectable({ providedIn: 'root' })`
+   * compiles to). The package is built with tsup, not the Angular compiler, and a
+   * bare decorator would need `@angular/compiler` at runtime, which AOT apps
+   * don't ship.
+   */
+  static ɵprov = ɵɵdefineInjectable({
+    token: TodeService,
+    providedIn: 'root',
+    factory: () => new TodeService(ɵɵinject(NgZone)),
+  });
+
   private readonly destroy$ = new Subject<void>();
   private readonly isReadySubject = new BehaviorSubject<boolean>(tode.isReady);
   private readonly wsStateSubject = new BehaviorSubject<WebSocketState>('disconnected');
@@ -121,16 +132,16 @@ export class TodeService implements OnDestroy {
    * Track a simple action event.
    * Convenience method that delegates to tode.trackAction.
    */
-  trackAction(actionName: string): Promise<void> {
-    return tode.trackAction(actionName);
+  trackAction(actionName: string, options?: TrackOptions): Promise<void> {
+    return tode.trackAction(actionName, options);
   }
 
   /**
    * Track an action with a numeric metric.
    * Convenience method that delegates to tode.trackActionWithMetric.
    */
-  trackActionWithMetric(actionName: string, value: number): Promise<void> {
-    return tode.trackActionWithMetric(actionName, value);
+  trackActionWithMetric(actionName: string, value: number, options?: TrackOptions): Promise<void> {
+    return tode.trackActionWithMetric(actionName, value, options);
   }
 
   ngOnDestroy(): void {
@@ -176,6 +187,8 @@ export class TodeService implements OnDestroy {
       });
 
     this.log('Message listener attached');
+    // Ask for the config in case the plugin posted it before this listener existed
+    requestConfigFromPlugin();
 
     // Check if already ready. Deferred to a microtask so that a `configure()`
     // call made synchronously right after construction (e.g. from a
@@ -202,12 +215,12 @@ export class TodeService implements OnDestroy {
    * Initialize the session WebSocket connection (with automatic reconnect on drop).
    */
   private initWebSocket(): void {
-    // Prevent multiple connections
+    // One handle per instance; the connection itself is shared across the UI
     if (this.sessionSocket) return;
 
     // Run outside Angular zone to avoid unnecessary change detection from ping/reconnect timers
     this.ngZone.runOutsideAngular(() => {
-      this.sessionSocket = createSessionSocket({
+      this.sessionSocket = acquireSessionSocket({
         debug: this.config.debug,
         pingInterval: this.config.pingInterval,
         logPrefix: '[TODE:angular]',

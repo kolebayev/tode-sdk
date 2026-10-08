@@ -59,11 +59,11 @@ tode.trackAction('plugin_opened');
 import { useTode } from '@tode-sdk/figma-react';
 
 function App() {
-  const { tode, isReady } = useTode();
+  const { trackAction } = useTode();
 
   return (
     <button
-      onClick={() => isReady && tode.trackAction('button_clicked')}
+      onClick={() => trackAction('button_clicked')}
     >
       Click me
     </button>
@@ -77,11 +77,11 @@ function App() {
 <script setup lang="ts">
 import { useTode } from '@tode-sdk/figma-vue';
 
-const { tode, isReady } = useTode();
+const { trackAction } = useTode();
 </script>
 
 <template>
-  <button @click="isReady && tode.trackAction('button_clicked')">
+  <button @click="trackAction('button_clicked')">
     Click me
   </button>
 </template>
@@ -179,11 +179,23 @@ tode.trackAction('action_name', { signal: abortController.signal });
 
 Session duration is tracked via a WebSocket opened by the UI adapter (`useTode`, `TodeService`, `createTodeStore`, or `TodeClient`) once `isReady` becomes true. The server records the session's duration from the socket's open-to-close time; `@tode-sdk/core` alone (with no adapter) never opens this socket, so plain `core` usage produces no session data.
 
-Every adapter now automatically reconnects with exponential backoff if the connection drops unexpectedly (1s, 2s, 4s, ... up to 30s, 5 attempts by default before giving up and reporting `wsState: 'error'`). `wsState` cycles through `'disconnected' | 'connecting' | 'connected' | 'error'` as this happens - surface it in your UI if you want to show a live connection indicator.
+Every adapter automatically reconnects with exponential backoff if the connection drops unexpectedly (1s, 2s, 4s, ... capped at 30s). It keeps trying for as long as the UI is open, and retries at once when the browser reports the network is back, so a plugin left open through laptop sleep resumes session tracking. `wsState` cycles through `'disconnected' | 'connecting' | 'connected' | 'error'` as this happens - surface it in your UI if you want to show a live connection indicator.
+
+The connection is shared: however many components call `useTode()`, create a store or a client, the UI opens one WebSocket and counts as one session, closed when the last of them is gone. `pingInterval` and `debug` come from whichever asked first.
+
+Each reconnect is recorded as a separate session. All connections of one UI session carry the same `session_id` query parameter.
+
+### Tracking before the UI is ready
+
+The UI gets its config from the plugin controller a moment after it loads. `trackAction()` / `trackActionWithMetric()` called before that are not lost: up to 50 events are held and sent, with their original timestamps, as soon as the config arrives. You don't need to wrap calls in `if (isReady)`. The same applies in the controller to events tracked before `init()` finishes.
+
+When an adapter starts listening it posts `{ type: 'TODE_UI_READY' }` to the plugin controller, and `tode.init()` answers by sending the config again. This covers a UI that loads slowly or is closed and reopened with `figma.showUI()`. Your own `figma.ui.onmessage` handler also receives that message; ignore message types you don't know.
 
 ### Error handling and limits
 
-`trackAction()` / `trackActionWithMetric()` never throw or reject - a failed request (network error, invalid API key, rate limiting) is only reported via `console.error`, regardless of `debug`. There is currently no way to detect delivery failure programmatically from plugin code; watch the console during development.
+`tode.init()` never throws either: called outside the plugin controller it logs an error and returns.
+
+`trackAction()` / `trackActionWithMetric()` never throw or reject - a failed request (network error, invalid API key, rate limiting) is only reported via `console.error`, regardless of `debug`. The log line carries the API's reason, for example `HTTP 429: Event quota for this billing period is used up`. There is currently no way to detect delivery failure programmatically from plugin code; watch the console during development.
 
 In particular, if a plugin's manifest doesn't request Figma "identity" access (so `figma.currentUser` is `null`) or a GeoIP lookup fails, the SDK substitutes safe fallback values (`'unknown'` / `''`) rather than sending `null` - so events aren't silently rejected by the backend's required-field validation.
 
@@ -201,6 +213,10 @@ npm install
 
 # Build all packages
 npm run build
+
+# Typecheck and test
+npm run typecheck
+npm test
 
 # Build specific package
 npm run build:core

@@ -51,6 +51,7 @@ vi.mock('@tode-sdk/core', async (importOriginal) => {
   };
 });
 
+const { resetSessionSocket } = await import('@tode-sdk/core');
 const { useTode } = await import('./useTode.js');
 
 function mountWithTode() {
@@ -65,6 +66,7 @@ function mountWithTode() {
 
 describe('useTode WebSocket reconnection', () => {
   beforeEach(() => {
+    resetSessionSocket();
     FakeWebSocket.instances = [];
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -97,5 +99,39 @@ describe('useTode WebSocket reconnection', () => {
 
     vi.advanceTimersByTime(10_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe('useTode tracking functions', () => {
+  beforeEach(() => {
+    resetSessionSocket();
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns trackAction and trackActionWithMetric that pass through to tode', async () => {
+    const { tode } = await import('@tode-sdk/core');
+    let result!: ReturnType<typeof useTode>;
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          result = useTode();
+          return () => h('div');
+        },
+      })
+    );
+    const options = { eventSource: 'ui' as const };
+
+    result.trackAction('export_clicked', options);
+    result.trackActionWithMetric('items_exported', 3, options);
+
+    expect(tode.trackAction).toHaveBeenCalledWith('export_clicked', options);
+    expect(tode.trackActionWithMetric).toHaveBeenCalledWith('items_exported', 3, options);
+
+    wrapper.unmount();
   });
 });

@@ -13,6 +13,7 @@ interface FigmaUser {
 interface FigmaUI {
   postMessage(message: unknown): void;
   onmessage: ((message: unknown) => void) | null;
+  on?(type: 'message', callback: (message: unknown) => void): void;
   show(): void;
   hide(): void;
   close(): void;

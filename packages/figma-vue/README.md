@@ -12,7 +12,7 @@ npm install @tode-sdk/core @tode-sdk/figma-vue
 <script setup lang="ts">
 import { useTode } from '@tode-sdk/figma-vue';
 
-const { tode, isReady, wsState } = useTode({
+const { trackAction, isReady, wsState } = useTode({
   debug: false,
   pingInterval: 5000,
   onWebSocketStateChange: (state) => console.log('WS:', state),
@@ -20,13 +20,13 @@ const { tode, isReady, wsState } = useTode({
 </script>
 
 <template>
-  <button @click="isReady && tode.trackAction('button_clicked')">
+  <button @click="trackAction('button_clicked')">
     Click me
   </button>
 </template>
 ```
 
-Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [root README](../../README.md).
+Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [docs](https://docs.usetode.dev).
 
 ## `useTode(options?)`
 
@@ -36,4 +36,4 @@ Requires `tode.init({ apiKey })` to have already run in the plugin controller (`
 | `pingInterval` | `number` | `5000` | WebSocket keepalive ping interval, in ms |
 | `onWebSocketStateChange` | `(state: WebSocketState) => void` | - | Called whenever the session WebSocket's state changes |
 
-Returns `{ tode, isReady, wsState }` (`isReady`/`wsState` are readonly refs). The composable listens for the plugin controller's config message, opens the session WebSocket once ready, and automatically reconnects (exponential backoff) if the connection drops. Cleanup runs automatically in `onUnmounted` - no manual `destroy()` call needed.
+Returns `{ tode, isReady, wsState, trackAction, trackActionWithMetric }` (`isReady`/`wsState` are readonly refs; the two track functions delegate to `tode` and accept the same optional `TrackOptions`). The composable listens for the plugin controller's config message, opens the session WebSocket once ready, and automatically reconnects (exponential backoff) if the connection drops. Cleanup runs automatically in `onUnmounted` - no manual `destroy()` call needed.

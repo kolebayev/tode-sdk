@@ -35,7 +35,7 @@ export class AppComponent implements OnInit {
 }
 ```
 
-`TodeService` is a root-provided singleton (`@Injectable({ providedIn: 'root' })`) - inject it, don't instantiate it yourself. Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [root README](../../README.md).
+`TodeService` is a root-provided singleton (`providedIn: 'root'`) - inject it, don't instantiate it yourself. Requires `tode.init({ apiKey })` to have already run in the plugin controller (`code.ts`) - see the [docs](https://docs.usetode.dev).
 
 ## `TodeService`
 
@@ -45,7 +45,7 @@ export class AppComponent implements OnInit {
 | `isReady` / `isReady$` | Current ready state, synchronously and as an `Observable<boolean>` |
 | `wsState` / `wsState$` | Current session WebSocket state, synchronously and as an `Observable<WebSocketState>` |
 | `tode` | Direct access to the underlying `@tode-sdk/core` singleton |
-| `trackAction(name)` / `trackActionWithMetric(name, value)` | Convenience delegates to `tode.trackAction` / `tode.trackActionWithMetric` |
+| `trackAction(name, options?)` / `trackActionWithMetric(name, value, options?)` | Convenience delegates to `tode.trackAction` / `tode.trackActionWithMetric` |
 
 ### Configuration timing
 

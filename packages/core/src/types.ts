@@ -22,12 +22,20 @@ export type EventType = 'action' | 'action_with_metric' | 'session';
 /**
  * Figma editor types where the plugin can run.
  */
-export type FigmaEditorType = 'figma' | 'figjam' | 'dev' | 'slides';
+export type FigmaEditorType = 'figma' | 'figjam' | 'dev' | 'slides' | 'buzz';
 
 /**
  * Figma editor modes.
  */
-export type FigmaMode = 'default' | 'codegen' | 'inspect' | 'textrun';
+export type FigmaMode =
+  | 'default'
+  | 'textreview'
+  | 'inspect'
+  | 'codegen'
+  | 'linkpreview'
+  | 'auth'
+  | 'query'
+  | 'textrun';
 
 /**
  * Figma-specific data extracted from the plugin environment.
