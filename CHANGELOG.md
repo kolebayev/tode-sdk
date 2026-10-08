@@ -4,7 +4,7 @@ All notable changes to the `@tode-sdk/*` packages are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). All six packages share one version; releases are cut by tagging `v<version>`, which runs `.github/workflows/publish.yml`, or by hand with `npm run release`.
 
-## [1.0.0] - 2026-10-07
+## [1.0.0] - 2026-10-08
 
 First npm release. Default endpoints moved to `https://processing.usetode.dev` and `wss://processing.usetode.dev`, matching the `manifest.json` allow-list in the docs.
 
